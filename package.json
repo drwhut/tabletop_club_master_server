@@ -1,0 +1,17 @@
+{
+  "name": "tabletop_club_master_server",
+  "version": "0.1.0",
+  "description": "A WebRTC signalling server that acts as the master server for Tabletop Club multiplayer rooms.",
+  "main": "server.js",
+  "dependencies": {
+    "ws": "^7.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^5.16.0"
+  },
+  "scripts": {
+    "test": "eslint server.js && echo \"Lint OK\" && exit 0"
+  },
+  "author": "Benjamin 'drwhut' Beddows, Fabio Alessandrelli",
+  "license": "MIT"
+}
