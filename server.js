@@ -60,7 +60,7 @@ function randomId () {
 
 function randomSecret () {
 	let out = "";
-	for (let i = 0; i < 16; i++) {
+	for (let i = 0; i < 4; i++) {
 		out += ALPHABET[randomInt(0, ALPHABET.length - 1)];
 	}
 	return out;
