@@ -34,21 +34,22 @@ const NO_LOBBY_TIMEOUT = 1000;
 const SEAL_CLOSE_TIMEOUT = 10000;
 const PING_INTERVAL = 10000;
 
-const STR_NO_LOBBY = "Have not joined lobby yet";
-const STR_HOST_DISCONNECTED = "Room host has disconnected";
-const STR_ONLY_HOST_CAN_SEAL = "Only host can seal the lobby";
-const STR_SEAL_COMPLETE = "Seal complete";
-const STR_TOO_MANY_LOBBIES = "Too many lobbies open, disconnecting";
-const STR_ALREADY_IN_LOBBY = "Already in a lobby";
-const STR_LOBBY_DOES_NOT_EXISTS = "Lobby does not exists";
-const STR_LOBBY_IS_SEALED = "Lobby is sealed";
-const STR_INVALID_FORMAT = "Invalid message format";
-const STR_NEED_LOBBY = "Invalid message when not in a lobby";
-const STR_SERVER_ERROR = "Server error, lobby not found";
-const STR_INVALID_DEST = "Invalid destination";
-const STR_INVALID_CMD = "Invalid command";
-const STR_TOO_MANY_PEERS = "Too many peers connected";
-const STR_INVALID_TRANSFER_MODE = "Invalid transfer mode, must be text";
+const CODE_ERROR = 4000;
+// CLIENT ONLY: const CODE_MASTER_UNREACHABLE = 4001;
+const CODE_NO_LOBBY = 4002;
+const CODE_HOST_DISCONNECTED = 4003;
+const CODE_ONLY_HOST_CAN_SEAL = 4004;
+const CODE_TOO_MANY_LOBBIES = 4005;
+const CODE_ALREADY_IN_LOBBY = 4006;
+const CODE_LOBBY_DOES_NOT_EXISTS = 4007;
+const CODE_LOBBY_IS_SEALED = 4008;
+const CODE_INVALID_FORMAT = 4009;
+const CODE_NEED_LOBBY = 4010;
+const CODE_SERVER_ERROR = 4011;
+const CODE_INVALID_DEST = 4012;
+const CODE_INVALID_CMD = 4013;
+const CODE_TOO_MANY_PEERS = 4014;
+const CODE_INVALID_TRANSFER_MODE = 4015;
 
 function randomInt (low, high) {
 	return Math.floor(Math.random() * (high - low + 1) + low);
@@ -82,7 +83,7 @@ class Peer {
 		this.lobby = "";
 		// Close connection after 1 sec if client has not joined a lobby
 		this.timeout = setTimeout(() => {
-			if (!this.lobby) ws.close(4000, STR_NO_LOBBY);
+			if (!this.lobby) ws.close(CODE_NO_LOBBY);
 		}, NO_LOBBY_TIMEOUT);
 	}
 }
@@ -115,7 +116,7 @@ class Lobby {
 		const close = assigned === 1;
 		this.peers.forEach((p) => {
 			// Room host disconnected, must close.
-			if (close) p.ws.close(4000, STR_HOST_DISCONNECTED);
+			if (close) p.ws.close(CODE_HOST_DISCONNECTED);
 			// Notify peer disconnect.
 			else p.ws.send(`D: ${assigned}\n`);
 		});
@@ -130,7 +131,7 @@ class Lobby {
 	seal (peer) {
 		// Only host can seal
 		if (peer.id !== this.host) {
-			throw new ProtoError(4000, STR_ONLY_HOST_CAN_SEAL);
+			throw new ProtoError(CODE_ONLY_HOST_CAN_SEAL);
 		}
 		this.sealed = true;
 		this.peers.forEach((p) => {
@@ -141,7 +142,7 @@ class Lobby {
 		this.closeTimer = setTimeout(() => {
 			// Close peer connection to host (and thus the lobby)
 			this.peers.forEach((p) => {
-				p.ws.close(1000, STR_SEAL_COMPLETE);
+				p.ws.close(1000, "Seal completed.");
 			});
 		}, SEAL_CLOSE_TIMEOUT);
 	}
@@ -154,11 +155,11 @@ function joinLobby (peer, pLobby) {
 	let lobbyName = pLobby;
 	if (lobbyName === "") {
 		if (lobbies.size >= MAX_LOBBIES) {
-			throw new ProtoError(4000, STR_TOO_MANY_LOBBIES);
+			throw new ProtoError(CODE_TOO_MANY_LOBBIES);
 		}
 		// Peer must not already be in a lobby
 		if (peer.lobby !== "") {
-			throw new ProtoError(4000, STR_ALREADY_IN_LOBBY);
+			throw new ProtoError(CODE_ALREADY_IN_LOBBY);
 		}
 		lobbyName = randomSecret();
 		lobbies.set(lobbyName, new Lobby(lobbyName, peer.id));
@@ -166,8 +167,8 @@ function joinLobby (peer, pLobby) {
 		console.log(`Open lobbies: ${lobbies.size}`);
 	}
 	const lobby = lobbies.get(lobbyName);
-	if (!lobby) throw new ProtoError(4000, STR_LOBBY_DOES_NOT_EXISTS);
-	if (lobby.sealed) throw new ProtoError(4000, STR_LOBBY_IS_SEALED);
+	if (!lobby) throw new ProtoError(CODE_LOBBY_DOES_NOT_EXISTS);
+	if (lobby.sealed) throw new ProtoError(CODE_LOBBY_IS_SEALED);
 	peer.lobby = lobbyName;
 	console.log(`Peer ${peer.id} joining lobby ${lobbyName} ` +
 		`with ${lobby.peers.length} peers`);
@@ -177,10 +178,10 @@ function joinLobby (peer, pLobby) {
 
 function parseMsg (peer, msg) {
 	const sep = msg.indexOf("\n");
-	if (sep < 0) throw new ProtoError(4000, STR_INVALID_FORMAT);
+	if (sep < 0) throw new ProtoError(CODE_INVALID_FORMAT);
 
 	const cmd = msg.slice(0, sep);
-	if (cmd.length < 3) throw new ProtoError(4000, STR_INVALID_FORMAT);
+	if (cmd.length < 3) throw new ProtoError(CODE_INVALID_FORMAT);
 
 	const data = msg.slice(sep);
 
@@ -190,9 +191,9 @@ function parseMsg (peer, msg) {
 		return;
 	}
 
-	if (!peer.lobby) throw new ProtoError(4000, STR_NEED_LOBBY);
+	if (!peer.lobby) throw new ProtoError(CODE_NEED_LOBBY);
 	const lobby = lobbies.get(peer.lobby);
-	if (!lobby) throw new ProtoError(4000, STR_SERVER_ERROR);
+	if (!lobby) throw new ProtoError(CODE_SERVER_ERROR);
 
 	// Lobby sealing.
 	if (cmd.startsWith("S: ")) {
@@ -210,11 +211,11 @@ function parseMsg (peer, msg) {
 	// C: Client is sending a candidate.
 	let destId = parseInt(cmd.substr(3).trim());
 	// Dest is not an ID.
-	if (!destId) throw new ProtoError(4000, STR_INVALID_DEST);
+	if (!destId) throw new ProtoError(CODE_INVALID_DEST);
 	if (destId === 1) destId = lobby.host;
 	const dest = lobby.peers.find((e) => e.id === destId);
 	// Dest is not in this room.
-	if (!dest) throw new ProtoError(4000, STR_INVALID_DEST);
+	if (!dest) throw new ProtoError(CODE_INVALID_DEST);
 
 	function isCmd (what) {
 		return cmd.startsWith(`${what}: `);
@@ -223,12 +224,12 @@ function parseMsg (peer, msg) {
 		dest.ws.send(cmd[0] + ": " + lobby.getPeerId(peer) + data);
 		return;
 	}
-	throw new ProtoError(4000, STR_INVALID_CMD);
+	throw new ProtoError(CODE_INVALID_CMD);
 }
 
 wss.on("connection", (ws) => {
 	if (peersCount >= MAX_PEERS) {
-		ws.close(4000, STR_TOO_MANY_PEERS);
+		ws.close(CODE_TOO_MANY_PEERS);
 		return;
 	}
 	peersCount++;
@@ -236,13 +237,13 @@ wss.on("connection", (ws) => {
 	const peer = new Peer(id, ws);
 	ws.on("message", (message) => {
 		if (typeof message !== "string") {
-			ws.close(4000, STR_INVALID_TRANSFER_MODE);
+			ws.close(CODE_INVALID_TRANSFER_MODE);
 			return;
 		}
 		try {
 			parseMsg(peer, message);
 		} catch (e) {
-			const code = e.code || 4000;
+			const code = e.code || CODE_ERROR;
 			console.log(`Error parsing message from ${id}:\n` +
 				message);
 			ws.close(code, e.message);
