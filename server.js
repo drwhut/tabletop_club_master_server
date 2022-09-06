@@ -1,7 +1,7 @@
 // Tabletop Club Master Server
 // Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.
 // Copyright (c) 2014-2021 Godot Engine contributors.
-// Copyright (c) 2021 Benjamin 'drwhut' Beddows.
+// Copyright (c) 2021-2022 Benjamin 'drwhut' Beddows.
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // A copy of this software and associated documentation files (the
@@ -24,6 +24,8 @@
 
 const WebSocket = require("ws");
 const crypto = require("crypto");
+const fs = require("fs");
+const https = require("https");
 
 const MAX_PEERS = 4096;
 const MAX_LOBBIES = 1024;
@@ -67,7 +69,11 @@ function randomSecret () {
 	return out;
 }
 
-const wss = new WebSocket.Server({ port: PORT });
+const server = https.createServer({
+	cert: fs.readFileSync("public.crt"),
+	key: fs.readFileSync("private.pem")
+});
+const wss = new WebSocket.Server({ server });
 
 class ProtoError extends Error {
 	constructor (code, message) {
@@ -275,3 +281,5 @@ const interval = setInterval(() => { // eslint-disable-line no-unused-vars
 		ws.ping();
 	});
 }, PING_INTERVAL);
+
+server.listen(PORT);
