@@ -233,7 +233,7 @@ function parseMsg (peer, msg) {
 	throw new ProtoError(CODE_INVALID_CMD);
 }
 
-function heartbeat() {
+function heartbeat () {
 	this.isAlive = true;
 }
 
@@ -287,11 +287,11 @@ wss.on("connection", (ws) => {
 const interval = setInterval(() => { // eslint-disable-line no-unused-vars
 	wss.clients.forEach((ws) => {
 		if (ws.isAlive === false) {
-			return ws.terminate();
+			ws.terminate();
+		} else {
+			ws.isAlive = false;
+			ws.ping();
 		}
-
-		ws.isAlive = false;
-		ws.ping();
 	});
 }, PING_INTERVAL);
 
