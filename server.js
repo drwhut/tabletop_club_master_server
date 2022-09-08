@@ -233,11 +233,19 @@ function parseMsg (peer, msg) {
 	throw new ProtoError(CODE_INVALID_CMD);
 }
 
+function heartbeat() {
+	this.isAlive = true;
+}
+
 wss.on("connection", (ws) => {
 	if (peersCount >= MAX_PEERS) {
 		ws.close(CODE_TOO_MANY_PEERS);
 		return;
 	}
+
+	ws.isAlive = true;
+	ws.on("pong", heartbeat);
+
 	peersCount++;
 	const id = randomId();
 	const peer = new Peer(id, ws);
@@ -278,6 +286,11 @@ wss.on("connection", (ws) => {
 
 const interval = setInterval(() => { // eslint-disable-line no-unused-vars
 	wss.clients.forEach((ws) => {
+		if (ws.isAlive === false) {
+			return ws.terminate();
+		}
+
+		ws.isAlive = false;
 		ws.ping();
 	});
 }, PING_INTERVAL);
