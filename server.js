@@ -28,7 +28,9 @@ const fs = require("fs");
 const https = require("https");
 
 const MAX_PEERS = 4096;
+const MAX_PEERS_PER_ADDRESS = 10;
 const MAX_LOBBIES = 1024;
+const MAX_PAYLOAD = 10000; // 10 KB.
 const PORT = 9080;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -52,6 +54,7 @@ const CODE_INVALID_DEST = 4012;
 const CODE_INVALID_CMD = 4013;
 const CODE_TOO_MANY_PEERS = 4014;
 const CODE_INVALID_TRANSFER_MODE = 4015;
+const CODE_TOO_MANY_CONNECTIONS = 4016;
 
 function randomInt (low, high) {
 	return Math.floor(Math.random() * (high - low + 1) + low);
@@ -73,7 +76,11 @@ const server = https.createServer({
 	cert: fs.readFileSync("public.crt"),
 	key: fs.readFileSync("private.pem")
 });
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+	backlog: MAX_PEERS,
+	maxPayload: MAX_PAYLOAD,
+	server
+});
 
 class ProtoError extends Error {
 	constructor (code, message) {
@@ -237,10 +244,25 @@ function heartbeat () {
 	this.isAlive = true;
 }
 
-wss.on("connection", (ws) => {
+const addressCount = new Map();
+
+wss.on("connection", (ws, req) => {
 	if (peersCount >= MAX_PEERS) {
 		ws.close(CODE_TOO_MANY_PEERS);
 		return;
+	}
+
+	const address = req.socket.remoteAddress;
+	if (addressCount.has(address)) {
+		const count = addressCount.get(address);
+		if (count + 1 > MAX_PEERS_PER_ADDRESS) {
+			ws.close(CODE_TOO_MANY_CONNECTIONS);
+			return;
+		}
+
+		addressCount.set(address, count + 1);
+	} else {
+		addressCount.set(address, 1);
 	}
 
 	ws.isAlive = true;
@@ -265,6 +287,16 @@ wss.on("connection", (ws) => {
 	});
 	ws.on("close", (code, reason) => {
 		peersCount--;
+
+		if (addressCount.has(address)) {
+			const count = addressCount.get(address);
+			if (count <= 1) {
+				addressCount.delete(address);
+			} else {
+				addressCount.set(address, count - 1);
+			}
+		}
+
 		console.log(`Connection with peer ${peer.id} closed ` +
 			`with reason ${code}: ${reason}`);
 		if (peer.lobby && lobbies.has(peer.lobby) &&
