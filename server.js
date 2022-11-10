@@ -36,6 +36,7 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 const NO_LOBBY_TIMEOUT = 1000;
 const SEAL_CLOSE_TIMEOUT = 10000;
+const RECONNECT_TIMEOUT = 5000;
 const PING_INTERVAL = 10000;
 
 const CODE_ERROR = 4000;
@@ -55,6 +56,7 @@ const CODE_INVALID_CMD = 4013;
 const CODE_TOO_MANY_PEERS = 4014;
 const CODE_INVALID_TRANSFER_MODE = 4015;
 const CODE_TOO_MANY_CONNECTIONS = 4016;
+const CODE_RECONNECT_TOO_QUICKLY = 4017;
 
 function randomInt (low, high) {
 	return Math.floor(Math.random() * (high - low + 1) + low);
@@ -245,6 +247,7 @@ function heartbeat () {
 }
 
 const addressCount = new Map();
+const reconnectTimer = new Map();
 
 wss.on("connection", (ws, req) => {
 	if (peersCount >= MAX_PEERS) {
@@ -263,6 +266,19 @@ wss.on("connection", (ws, req) => {
 		addressCount.set(address, count + 1);
 	} else {
 		addressCount.set(address, 1);
+	}
+
+	if (reconnectTimer.has(address)) {
+		const lastDisconnect = reconnectTimer.get(address);
+		const thisReconnect = new Date();
+		const timeSinceDisconnect = thisReconnect - lastDisconnect;
+
+		if (timeSinceDisconnect < RECONNECT_TIMEOUT) {
+			ws.close(CODE_RECONNECT_TOO_QUICKLY);
+			return;
+		}
+
+		reconnectTimer.delete(address);
 	}
 
 	ws.isAlive = true;
@@ -297,6 +313,8 @@ wss.on("connection", (ws, req) => {
 			}
 		}
 
+		reconnectTimer.set(address, new Date());
+
 		console.log(`Connection with peer ${peer.id} closed ` +
 			`with reason ${code}: ${reason}`);
 		if (peer.lobby && lobbies.has(peer.lobby) &&
@@ -323,6 +341,14 @@ const interval = setInterval(() => { // eslint-disable-line no-unused-vars
 		} else {
 			ws.isAlive = false;
 			ws.ping();
+		}
+	});
+
+	const currentTime = new Date();
+	reconnectTimer.forEach((disconnectTime, address, map) => {
+		const timeSinceDisconnect = currentTime - disconnectTime;
+		if (timeSinceDisconnect > RECONNECT_TIMEOUT) {
+			map.delete(address);
 		}
 	});
 }, PING_INTERVAL);
