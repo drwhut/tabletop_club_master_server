@@ -27,11 +27,15 @@ const crypto = require("crypto");
 const fs = require("fs");
 const https = require("https");
 
+const express = require("express");
+const prometheus = require("prom-client");
+
 const MAX_PEERS = 4096;
 const MAX_PEERS_PER_ADDRESS = 10;
 const MAX_LOBBIES = 1024;
 const MAX_PAYLOAD = 10000; // 10 KB.
-const PORT = 9080;
+const WS_PORT = 9080;
+const PROM_PORT = 9110;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 const NO_LOBBY_TIMEOUT = 1000;
@@ -167,14 +171,14 @@ const lobbies = new Map();
 let peersCount = 0;
 
 function joinLobby (peer, pLobby) {
+	// Peer must not already be in a lobby.
+	if (peer.lobby !== "") {
+		throw new ProtoError(CODE_ALREADY_IN_LOBBY);
+	}
 	let lobbyName = pLobby;
 	if (lobbyName === "") {
 		if (lobbies.size >= MAX_LOBBIES) {
 			throw new ProtoError(CODE_TOO_MANY_LOBBIES);
-		}
-		// Peer must not already be in a lobby
-		if (peer.lobby !== "") {
-			throw new ProtoError(CODE_ALREADY_IN_LOBBY);
 		}
 		lobbyName = randomSecret();
 		lobbies.set(lobbyName, new Lobby(lobbyName, peer.id));
@@ -249,24 +253,59 @@ function heartbeat () {
 const addressCount = new Map();
 const reconnectTimer = new Map();
 
+// Monitor statistics with Prometheus.
+prometheus.collectDefaultMetrics();
+
+/* eslint-disable no-new */
+
+new prometheus.Gauge({
+	collect () {
+		this.set(lobbies.size);
+	},
+	help: "The number of currently active lobbies.",
+	name: "tcms_lobby_count"
+});
+
+new prometheus.Gauge({
+	collect () {
+		this.set(peersCount);
+	},
+	help: "The number of currently connected peers.",
+	name: "tcms_peer_count"
+});
+
+new prometheus.Gauge({
+	collect () {
+		this.set(addressCount.size);
+	},
+	"help": "The number of unique remote addresses.",
+	"name": "tcms_remote_address_count"
+});
+
+new prometheus.Gauge({
+	collect () {
+		this.set(reconnectTimer.size);
+	},
+	help: "The number of peers that must wait to reconnect.",
+	name: "tcms_reconnect_timer_count"
+});
+
+const closeCodeCounter = new prometheus.Counter({
+	help: "The total number of connection close codes.",
+	labelNames: ["code"],
+	name: "tcms_close_code_total"
+});
+
+/* eslint-enable no-new */
+
 wss.on("connection", (ws, req) => {
 	if (peersCount >= MAX_PEERS) {
 		ws.close(CODE_TOO_MANY_PEERS);
+		closeCodeCounter.inc({ code: CODE_TOO_MANY_PEERS });
 		return;
 	}
 
 	const address = req.socket.remoteAddress;
-	if (addressCount.has(address)) {
-		const count = addressCount.get(address);
-		if (count + 1 > MAX_PEERS_PER_ADDRESS) {
-			ws.close(CODE_TOO_MANY_CONNECTIONS);
-			return;
-		}
-
-		addressCount.set(address, count + 1);
-	} else {
-		addressCount.set(address, 1);
-	}
 
 	if (reconnectTimer.has(address)) {
 		const lastDisconnect = reconnectTimer.get(address);
@@ -275,10 +314,30 @@ wss.on("connection", (ws, req) => {
 
 		if (timeSinceDisconnect < RECONNECT_TIMEOUT) {
 			ws.close(CODE_RECONNECT_TOO_QUICKLY);
+			closeCodeCounter.inc({
+				code: CODE_RECONNECT_TOO_QUICKLY
+			});
 			return;
 		}
 
 		reconnectTimer.delete(address);
+	}
+
+	if (addressCount.has(address)) {
+		const count = addressCount.get(address);
+		if (count + 1 > MAX_PEERS_PER_ADDRESS) {
+			reconnectTimer.set(address, new Date());
+
+			ws.close(CODE_TOO_MANY_CONNECTIONS);
+			closeCodeCounter.inc({
+				code: CODE_TOO_MANY_CONNECTIONS
+			});
+			return;
+		}
+
+		addressCount.set(address, count + 1);
+	} else {
+		addressCount.set(address, 1);
 	}
 
 	ws.isAlive = true;
@@ -317,6 +376,8 @@ wss.on("connection", (ws, req) => {
 
 		console.log(`Connection with peer ${peer.id} closed ` +
 			`with reason ${code}: ${reason}`);
+		closeCodeCounter.inc({ code });
+
 		if (peer.lobby && lobbies.has(peer.lobby) &&
 			lobbies.get(peer.lobby).leave(peer)) {
 			lobbies.delete(peer.lobby);
@@ -353,4 +414,17 @@ const interval = setInterval(() => { // eslint-disable-line no-unused-vars
 	});
 }, PING_INTERVAL);
 
-server.listen(PORT);
+server.listen(WS_PORT);
+
+// Start a local HTTP server so Prometheus can gather statistics.
+const promServer = express();
+promServer.get("/metrics", async (req, res) => {
+	try {
+		res.set("Content-Type", prometheus.register);
+		res.end(await prometheus.register.metrics());
+	} catch (ex) {
+		res.status(500).end(ex);
+	}
+});
+
+promServer.listen(PROM_PORT);

@@ -4,6 +4,8 @@
   "description": "A WebRTC signalling server that acts as the master server for Tabletop Club multiplayer rooms.",
   "main": "server.js",
   "dependencies": {
+    "express": "^4.18.2",
+    "prom-client": "^14.1.0",
     "ws": "^7.0.0"
   },
   "devDependencies": {
