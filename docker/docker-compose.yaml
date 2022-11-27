@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  tabletop_club_master_server:
+    container_name: tabletop_club_master_server
+    image: tabletop_club_master_server
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+
+    ports:
+      - '9080:9080' # Game Lobby Port
+      - '9110:9110' # Prometheus Port
+
+    volumes:
+      - ./public.crt:/usr/src/app/public.crt:ro
+      - ./private.pem:/usr/src/app/private.pem:ro
+
+    # Security Options
+    security_opt:
+      - no-new-privileges
+    cap_drop:
+      - NET_ADMIN
+      - SYS_ADMIN
+
+    restart: unless-stopped
