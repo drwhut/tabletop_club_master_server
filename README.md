@@ -1,3 +1,7 @@
+**NOTE:** This repository is now deprecated, please use the
+[new lobby server](https://github.com/drwhut/tabletop_club_lobby_server)
+instead.
+
 # Tabletop Club Master Server
 
 A WebRTC signalling server that acts as the master server for Tabletop Club
